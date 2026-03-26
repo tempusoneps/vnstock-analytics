@@ -1,0 +1,19 @@
+services:
+  vnstock_analytics:
+    image: vnstock_analytics:v1.0
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: vnstock_analytics
+    restart: "no"
+    ports:
+      - "8888:8888" 
+    volumes:
+      - ./notebooks:/notebooks
+      - ./scripts/entrypoint.sh:/entrypoint.sh
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    networks:
+      - algo_net
+
+networks:
+  algo_net:
