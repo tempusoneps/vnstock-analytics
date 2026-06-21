@@ -1,4 +1,8 @@
 .vcopilot
 .venv
-src/
 **/*.pyc
+**.Trash*
+**ipynb_checkpoints
+datasets/*.csv
+reports/*
+!reports/.gitkeep

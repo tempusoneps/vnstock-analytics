@@ -4,6 +4,7 @@ set -e  # exit nếu có lỗi
 
 OHLCV_DATASET="/notebooks/VN30F1M/VN30F1M_5m.csv"
 FEATURE_DATASET="/notebooks/VN30F1M/VN30F1M_5m_features.csv"
+LABEL_DATASET="/notebooks/VN30F1M/VN30F1M_5m_labels.csv"
 OHLCV_URL="https://raw.githubusercontent.com/tempusoneps/vn-stock-data/refs/heads/main/VN30F1M/data_ohlcv/VN30F1M_5m.csv"
 
 echo "=== START DATA PREP ==="
@@ -22,7 +23,18 @@ else
   echo "[PASS] OHLCV_DATASET đã tồn tại"
 fi
 
-# 2. Check FEATURE_DATASET
+# 2. Check LABEL_DATASET
+if [ ! -f "$LABEL_DATASET" ]; then
+  echo "[INFO] LABEL_DATASET chưa tồn tại. Đang tạo..."
+
+  labelohlcv "$OHLCV_DATASET" --mod vn30f1m --output "$LABEL_DATASET"
+
+  echo "[DONE] Đã tạo LABEL_DATASET"
+else
+  echo "[SKIP] LABEL_DATASET đã tồn tại"
+fi
+
+# 3. Check FEATURE_DATASET
 if [ ! -f "$FEATURE_DATASET" ]; then
   echo "[INFO] FEATURE_DATASET chưa tồn tại. Đang tạo..."
 

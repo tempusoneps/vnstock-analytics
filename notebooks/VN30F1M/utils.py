@@ -14,6 +14,10 @@ OHCLV_DATASET = 'VN30F1M_5m.csv'
 FEATURE_DATASET = 'VN30F1M_5m_features.csv'
 ANALYTICS_DATASET = 'VN30F1M_5m_ready.csv'
 CURRENT_DIR = os.getcwd()
+
+# constraints
+BUY_MEET_SL = 'SL(Buy)'
+SELL_MEET_SL   = 'SL(Sell)'
     
 
 def load_analytics_dataset():
@@ -39,6 +43,7 @@ def do_label_data(df):
     if not rule:
         return None
     label_data = df.copy()
+    label_data['Stoploss'] = '' # SL(Buy) | SL(Sell)
     new_entry_allowed = []
     for i, row in label_data.iterrows():
         current_date = row.name.strftime('%Y-%m-%d ').format()
@@ -58,11 +63,11 @@ def do_label_data(df):
             longable = False
         #
         if longable and shortable:
-            new_entry_allowed.append('Sideway')
+            new_entry_allowed.append('Both')
         elif longable:
-            new_entry_allowed.append('Bullish')
+            new_entry_allowed.append('Long')
         elif shortable:
-            new_entry_allowed.append('Bearish')
+            new_entry_allowed.append('Short')
         else:
             new_entry_allowed.append("None")
     #
@@ -83,14 +88,14 @@ def show_3_distribution_charts(ts1, ts2):
     # 1. Grouped Bar Chart (Count)
     ct.plot(kind='bar', ax=axes[0])
     axes[0].set_title('Count Distribution')
-    axes[0].set_xlabel('Color')
+    axes[0].set_xlabel(ts1.name)
     axes[0].set_ylabel('Count')
     axes[0].legend(title='Label')
     
     # 2. 100% Stacked Bar Chart
     ct_norm.plot(kind='bar', stacked=True, ax=axes[1])
     axes[1].set_title('Percentage Distribution')
-    axes[1].set_xlabel('Color')
+    axes[1].set_xlabel(ts1.name)
     axes[1].set_ylabel('Ratio')
     axes[1].legend(title='Label')
     
