@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Module"
+  short_description: "Scaffold auto_report modules"
+  default_prompt: "Use $create-module to add a new auto_report module."

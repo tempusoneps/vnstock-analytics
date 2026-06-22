@@ -12,8 +12,11 @@ import matplotlib.pyplot as plt
 RULE_URL = 'https://raw.githubusercontent.com/tempusoneps/trading-rules/refs/heads/main/VN30F1M/close_position_rules.json'
 OHCLV_DATASET = 'VN30F1M_5m.csv'
 FEATURE_DATASET = 'VN30F1M_5m_features.csv'
+LABEL_DATASET = 'VN30F1M_5m_labels.csv'
 ANALYTICS_DATASET = 'VN30F1M_5m_ready.csv'
 CURRENT_DIR = os.getcwd()
+KEY_COLUMNS = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+OHLCV_COLUMNS = ['Open', 'High', 'Low', 'Close', 'Volume']
 
 # constraints
 BUY_MEET_SL = 'SL(Buy)'
@@ -21,58 +24,173 @@ SELL_MEET_SL   = 'SL(Sell)'
     
 
 def load_analytics_dataset():
-    csv_feature_file = str(CURRENT_DIR) + '/' + FEATURE_DATASET
-    csv_final_file = str(CURRENT_DIR) + '/' + ANALYTICS_DATASET
+    data_dir = resolve_dataset_dir()
+    csv_feature_file = data_dir / FEATURE_DATASET
+    csv_label_file = data_dir / LABEL_DATASET
+    csv_final_file = data_dir / ANALYTICS_DATASET
     is_file = os.path.isfile(csv_final_file)
     if is_file:
         dataset = pd.read_csv(csv_final_file, index_col='Date', parse_dates=True)
     else:
-        if os.path.isfile(csv_feature_file):
-            df = pd.read_csv(csv_feature_file, index_col='Date', parse_dates=True)
-            dataset = do_label_data(df)
+        if os.path.isfile(csv_feature_file) and os.path.isfile(csv_label_file):
+            features = read_dataset_csv(csv_feature_file)
+            labels = read_dataset_csv(csv_label_file)
+            dataset = merge_feature_label_dataset(features, labels)
             dataset.to_csv(csv_final_file)
         else:
             dataset = None
     return dataset
 
-def do_label_data(df):
-    with urlopen(RULE_URL) as response:
-        rules = json.loads(response.read().decode('utf-8'))
-    rule_id = "no-overnight-sl033-tp132-tsl035-fc1425"
-    rule = next((r for r in rules["rules"] if r["id"] == rule_id), None)
-    if not rule:
+def resolve_dataset_dir():
+    current_dir = Path(CURRENT_DIR).resolve()
+    candidates = []
+    for path in [current_dir] + list(current_dir.parents):
+        candidates.append(path / 'datasets')
+    candidates.append(current_dir)
+
+    for data_dir in candidates:
+        if (data_dir / FEATURE_DATASET).is_file() and (data_dir / LABEL_DATASET).is_file():
+            return data_dir
+
+    return current_dir
+
+def read_dataset_csv(path):
+    columns = pd.read_csv(path, nrows=0).columns.tolist()
+    parse_dates = ['Date'] if 'Date' in columns else None
+    return pd.read_csv(path, parse_dates=parse_dates)
+
+def merge_feature_label_dataset(features, labels):
+    missing_feature_columns = [column for column in KEY_COLUMNS if column not in features.columns]
+    if missing_feature_columns:
+        raise ValueError(f'Feature dataset is missing required columns: {missing_feature_columns}')
+
+    labels = prepare_label_dataset(features, labels)
+    merge_keys = KEY_COLUMNS if all(column in labels.columns for column in KEY_COLUMNS) else ['Date']
+
+    duplicate_features = features.duplicated(merge_keys).sum()
+    duplicate_labels = labels.duplicated(merge_keys).sum()
+    if duplicate_features or duplicate_labels:
+        raise ValueError(
+            'Merge keys must be unique. '
+            f'duplicate_features={duplicate_features}, duplicate_labels={duplicate_labels}'
+        )
+
+    dataset = features.merge(
+        labels,
+        on=merge_keys,
+        how='left',
+        validate='one_to_one',
+        indicator=True,
+        suffixes=('', '_label'),
+    )
+    missing_labels = (dataset['_merge'] != 'both').sum()
+    if missing_labels:
+        raise ValueError(f'Merge lost labels for {missing_labels} feature rows.')
+
+    dataset = dataset.drop(columns=['_merge'])
+    return dataset.set_index('Date').sort_index()
+
+def prepare_label_dataset(features, labels):
+    labels = labels.copy()
+    if 'Date' in labels.columns:
+        labels['Date'] = pd.to_datetime(labels['Date'], errors='coerce')
+        return labels
+
+    if all(column in labels.columns for column in OHLCV_COLUMNS):
+        aligned_labels = align_labels_to_features_by_ohlcv(features, labels)
+        if aligned_labels is not None:
+            return aligned_labels
+
+    if len(features) != len(labels):
+        raise ValueError(
+            'Label dataset must contain Date, align to feature OHLCV rows, '
+            'or have the same row count as the feature dataset. '
+            f'features={len(features)}, labels={len(labels)}'
+        )
+
+    if all(column in labels.columns for column in OHLCV_COLUMNS):
+        mismatch_counts = {}
+        for column in OHLCV_COLUMNS:
+            left = pd.to_numeric(features[column], errors='coerce')
+            right = pd.to_numeric(labels[column], errors='coerce')
+            if column == 'Volume':
+                mismatches = left.fillna(-1).astype(float) != right.fillna(-1).astype(float)
+            else:
+                mismatches = ~np.isclose(
+                    left.to_numpy(dtype=float),
+                    right.to_numpy(dtype=float),
+                    equal_nan=True,
+                    rtol=1e-9,
+                    atol=1e-9,
+                )
+            mismatch_counts[column] = int(np.sum(mismatches))
+        if sum(mismatch_counts.values()):
+            raise ValueError(
+                'Feature and label OHLCV rows are not aligned. '
+                f'Mismatch counts: {mismatch_counts}'
+            )
+
+    labels.insert(0, 'Date', pd.to_datetime(features['Date'], errors='coerce').to_numpy())
+    return labels
+
+def align_labels_to_features_by_ohlcv(features, labels):
+    feature_keys = features[OHLCV_COLUMNS].reset_index(drop=True)
+    label_keys = labels[OHLCV_COLUMNS].reset_index(drop=True)
+
+    label_rows_by_key = {}
+    for label_index, row in label_keys.iterrows():
+        key = ohlcv_key(row)
+        label_rows_by_key.setdefault(key, []).append(label_index)
+
+    matched_label_indices = []
+    last_label_index = -1
+    for _, row in feature_keys.iterrows():
+        key = ohlcv_key(row)
+        candidate_indices = label_rows_by_key.get(key, [])
+        next_label_index = None
+        while candidate_indices:
+            candidate_index = candidate_indices.pop(0)
+            if candidate_index > last_label_index:
+                next_label_index = candidate_index
+                break
+
+        if next_label_index is None:
+            return None
+
+        matched_label_indices.append(next_label_index)
+        last_label_index = next_label_index
+
+    aligned_labels = labels.iloc[matched_label_indices].reset_index(drop=True).copy()
+    if not ohlcv_frames_match(feature_keys, aligned_labels[OHLCV_COLUMNS].reset_index(drop=True)):
         return None
-    label_data = df.copy()
-    label_data['Stoploss'] = '' # SL(Buy) | SL(Sell)
-    new_entry_allowed = []
-    for i, row in label_data.iterrows():
-        current_date = row.name.strftime('%Y-%m-%d ').format()
-        current_time = row.name
-        data_to_end_day = label_data[(label_data.index > current_time) & (label_data.index < current_date + ' 14:30:00')]
-        if not len(data_to_end_day):
-            new_entry_allowed.append("")
-            continue
-        #
-        entry_price = row['Close']
-        long_sl = entry_price - entry_price * rule['risk_management']['stop_loss']['value'] / 100
-        short_sl = entry_price + entry_price * rule['risk_management']['stop_loss']['value'] / 100
-        longable = shortable = True
-        if data_to_end_day['High'].max() >= short_sl:
-            shortable = False
-        if data_to_end_day['Low'].min() <= long_sl:
-            longable = False
-        #
-        if longable and shortable:
-            new_entry_allowed.append('Both')
-        elif longable:
-            new_entry_allowed.append('Long')
-        elif shortable:
-            new_entry_allowed.append('Short')
+
+    aligned_labels.insert(0, 'Date', pd.to_datetime(features['Date'], errors='coerce').to_numpy())
+    return aligned_labels
+
+def ohlcv_key(row):
+    values = []
+    for column in OHLCV_COLUMNS:
+        value = row[column]
+        values.append(None if pd.isna(value) else float(value))
+    return tuple(values)
+
+def ohlcv_frames_match(left_frame, right_frame):
+    for column in OHLCV_COLUMNS:
+        left = pd.to_numeric(left_frame[column], errors='coerce')
+        right = pd.to_numeric(right_frame[column], errors='coerce')
+        if column == 'Volume':
+            mismatches = left.fillna(-1).astype(float) != right.fillna(-1).astype(float)
         else:
-            new_entry_allowed.append("None")
-    #
-    label_data['allow_entry'] = new_entry_allowed
-    return label_data
+            mismatches = ~np.isclose(
+                left.to_numpy(dtype=float),
+                right.to_numpy(dtype=float),
+                equal_nan=True,
+                rtol=1e-9,
+                atol=1e-9,
+            )
+        if np.any(mismatches):
+            return False
+    return True
 
 def show_3_distribution_charts(ts1, ts2):
     if len(ts1.unique()) > 10:

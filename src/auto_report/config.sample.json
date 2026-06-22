@@ -1,0 +1,28 @@
+{
+  "module": "all",
+  "data_dir": "datasets",
+  "output_dir": "reports",
+  "raw_file": "VN30F1M_5m.csv",
+  "features_file": "VN30F1M_5m_features.csv",
+  "labels_file": "VN30F1M_5m_labels.csv",
+  "modules": {
+    "statistics": {
+      "top_n": 30
+    },
+    "xgboost": {
+      "targets": "all",
+      "target": null,
+      "test_size": 0.15,
+      "val_size": 0.15,
+      "random_state": 42,
+      "max_rows": 0,
+      "min_rows_per_target": 500,
+      "include_leakage": false,
+      "xgb_n_estimators": 200,
+      "xgb_max_depth": 4,
+      "xgb_learning_rate": 0.05,
+      "gpu": false,
+      "top_n": 30
+    }
+  }
+}

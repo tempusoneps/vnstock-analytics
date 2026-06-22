@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import re
 import warnings
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -24,13 +22,10 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 
-from .constants import DEFAULT_CLASS_ORDER, KEY_COLUMNS
-from .data import load_and_merge, normalize_target, resolve_data_dir
-from .features import build_feature_spec, coerce_feature_columns
+from .constants import DEFAULT_CLASS_ORDER
+from .data import normalize_target
 from .modeling import build_preprocessor
-from .reporting import date_range, markdown_table
 from .utils import fail, normalize_path
-from .visualization import write_multi_label_visualizations
 
 
 @dataclass
@@ -392,46 +387,6 @@ def run_one_target(
     return TargetResult(metrics=metrics, importance=importance)
 
 
-def write_multi_markdown(
-    output_dir: Path,
-    metrics_df: pd.DataFrame,
-    importance_df: pd.DataFrame,
-    target_names: list[str],
-    args: Any,
-) -> None:
-    top_importance = (
-        importance_df.sort_values(["label", "rank"])
-        .groupby("label", group_keys=False)
-        .head(args.top_n)
-    )
-    report = f"""# Multi-Label XGBoost Feature Importance
-
-## Run
-- data_dir: `{args.data_dir}`
-- targets: {len(target_names)} ({", ".join(target_names)})
-- max_rows: {args.max_rows or "all"}
-- xgboost: n_estimators={args.xgb_n_estimators}, max_depth={args.xgb_max_depth}, learning_rate={args.xgb_learning_rate}
-- xgboost_device_requested: {"cuda" if args.gpu else "cpu"}
-
-## Label Metrics
-{markdown_table(metrics_df.sort_values("primary_metric", ascending=False), ["label", "task_type", "primary_metric_name", "primary_metric", "baseline_metric", "metric_lift", "rows_total", "top_features"], args.top_n)}
-
-## Top Feature Importance Per Label
-{markdown_table(top_importance, ["label", "task_type", "rank", "feature", "importance"], args.top_n * max(1, len(target_names)))}
-
-## Files
-- `report.html`
-- `label_metrics.csv`
-- `feature_importance_by_label.csv`
-- `feature_importance_matrix.csv`
-- `feature_importance_heatmap.png`
-- `classification_macro_f1.png`
-- `regression_r2.png`
-- `top_features_overall.png`
-"""
-    (output_dir / "report.md").write_text(report)
-
-
 def print_multi_summary(
     bundle: Any,
     feature_count_source: int,
@@ -468,87 +423,23 @@ def print_multi_summary(
 
 
 def run_multi_label(args: Any) -> None:
-    args.data_dir = normalize_path(args.data_dir)
-    args.data_dir = resolve_data_dir(args.data_dir, args.raw_file, args.features_file, args.labels_file)
-    args.output_dir = normalize_path(args.output_dir)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    from .config import AutoReportConfig
+    from .data import load_and_merge, resolve_data_dir
+    from .modules.base.pipeline import PipelineContext
+    from .modules.xgboost.pipeline import XGBoostPipeline
 
-    print(f"[INFO] Loading data from {args.data_dir}")
-    bundle = load_and_merge(args.data_dir, args.raw_file, args.features_file, args.labels_file)
-    label_columns = [column for column in bundle.labels.columns if column not in KEY_COLUMNS]
-    target_names = parse_target_names(args.targets, args.target, label_columns)
+    config = AutoReportConfig.from_namespace(args)
+    config.module = "xgboost"
+    config.data_dir = normalize_path(config.data_dir)
+    config.data_dir = resolve_data_dir(config.data_dir, config.raw_file, config.features_file, config.labels_file)
+    config.output_dir = normalize_path(config.output_dir)
+    config.output_dir.mkdir(parents=True, exist_ok=True)
 
-    merged = bundle.merged.copy()
-    merged["Date"] = pd.to_datetime(merged["Date"], errors="coerce")
-    merged = merged.sort_values("Date").reset_index(drop=True)
+    print(f"[INFO] Loading data from {config.data_dir}")
+    bundle = load_and_merge(config.data_dir, config.raw_file, config.features_file, config.labels_file)
+    context = PipelineContext(config=config, bundle=bundle, output_dir=config.output_dir)
+    result = XGBoostPipeline().run(context)
 
-    feature_spec = build_feature_spec(
-        merged,
-        label_columns=label_columns,
-        target=target_names[0],
-        include_leakage=args.include_leakage,
-    )
-    x_all, numeric_columns, categorical_columns = coerce_feature_columns(merged, feature_spec.feature_columns)
-    feature_spec.numeric_columns = numeric_columns
-    feature_spec.categorical_columns = categorical_columns
-
-    print(f"[INFO] Training XGBoost for {len(target_names)} target label(s)")
-    results: list[TargetResult] = []
-    for target in target_names:
-        print(f"[INFO] Target: {target}")
-        result = run_one_target(target, merged, x_all, numeric_columns, categorical_columns, args)
-        if result is not None:
-            results.append(result)
-
-    if not results:
-        fail("No targets were completed.")
-
-    metrics_df = pd.DataFrame([result.metrics for result in results])
-    importance_df = pd.concat([result.importance for result in results], ignore_index=True)
-    importance_matrix = importance_df.pivot_table(
-        index="label",
-        columns="feature",
-        values="importance",
-        aggfunc="sum",
-        fill_value=0.0,
-    )
-
-    metrics_df.to_csv(args.output_dir / "label_metrics.csv", index=False)
-    importance_df.to_csv(args.output_dir / "feature_importance_by_label.csv", index=False)
-    importance_matrix.to_csv(args.output_dir / "feature_importance_matrix.csv")
-
-    summary = {
-        "data_dir": str(args.data_dir),
-        "date_range": date_range(merged),
-        "feature_rows": int(len(bundle.features)),
-        "label_rows": int(len(bundle.labels)),
-        "merged_rows": int(len(bundle.merged)),
-        "label_columns": label_columns,
-        "targets_requested": target_names,
-        "targets_completed": metrics_df["label"].tolist(),
-        "feature_columns_source": len([column for column in bundle.features.columns if column != "Date"]),
-        "feature_columns_used": len(feature_spec.feature_columns),
-        "numeric_features": len(numeric_columns),
-        "categorical_features": len(categorical_columns),
-        "excluded_leakage_columns": feature_spec.leakage_columns,
-        "gpu": bool(args.gpu),
-        "xgboost_device_requested": "cuda" if args.gpu else "cpu",
-        "xgboost_cuda_build": bool(xgb.build_info().get("USE_CUDA")),
-    }
-    (args.output_dir / "dataset_summary.json").write_text(json.dumps(summary, indent=2, default=str))
-
-    write_multi_label_visualizations(args.output_dir, metrics_df, importance_df, args.top_n)
-    write_multi_markdown(args.output_dir, metrics_df, importance_df, target_names, args)
-    print_multi_summary(
-        bundle=bundle,
-        feature_count_source=summary["feature_columns_source"],
-        numeric_count=len(numeric_columns),
-        categorical_count=len(categorical_columns),
-        label_columns=label_columns,
-        target_names=target_names,
-        metrics_df=metrics_df,
-        gpu=args.gpu,
-    )
-
-    print(f"[DONE] Report written to {args.output_dir}")
-    print(f"[DONE] Open HTML summary: {args.output_dir / 'report.html'}")
+    print(f"[DONE] Report written to {config.output_dir}")
+    if config.output_dir / "xgboost_report.html" in result.output_files:
+        print(f"[DONE] Open HTML summary: {config.output_dir / 'xgboost_report.html'}")

@@ -1,4 +1,4 @@
-"""CLI entrypoint for the multi-label XGBoost report."""
+"""CLI entrypoint for auto report modules."""
 
 from __future__ import annotations
 
@@ -6,93 +6,65 @@ import argparse
 import sys
 from pathlib import Path
 
-from .multilabel import run_multi_label
-
-
-def parse_bool(value: str) -> bool:
-    lowered = value.strip().lower()
-    if lowered in {"1", "true", "yes", "y", "on"}:
-        return True
-    if lowered in {"0", "false", "no", "n", "off"}:
-        return False
-    raise argparse.ArgumentTypeError("Expected one of: true, false, yes, no, 1, 0")
+from .config import DEFAULT_CONFIG_PATH, ReportConfigFile
+from .data import load_and_merge, resolve_data_dir
+from .modules.base.pipeline import PipelineContext
+from .modules.statistics.pipeline import StatisticsPipeline
+from .modules.xgboost.pipeline import XGBoostPipeline
+from .utils import normalize_path
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train XGBoost against each label column, score predictability, "
-            "and visualize feature importance by label."
+            "Generate dataset statistics and XGBoost label predictability reports."
         )
     )
-    parser.add_argument("--data-dir", default="notebooks/VN30F1M", type=Path)
     parser.add_argument(
-        "--output-dir",
-        default=Path("notebooks/VN30F1M/predictability_reports"),
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
         type=Path,
+        help=f"Path to JSON config file. Default: {DEFAULT_CONFIG_PATH}",
     )
-    parser.add_argument("--raw-file", default="VN30F1M_5m.csv")
-    parser.add_argument("--features-file", default="VN30F1M_5m_features.csv")
-    parser.add_argument("--labels-file", default="VN30F1M_5m_labels.csv")
-    parser.add_argument(
-        "--targets",
-        default="all",
-        help="Comma-separated label columns to predict, or 'all'. Default: all.",
-    )
-    parser.add_argument(
-        "--target",
-        default=None,
-        help="Backward-compatible alias for a single --targets value.",
-    )
-    parser.add_argument("--test-size", default=0.15, type=float)
-    parser.add_argument("--val-size", default=0.15, type=float)
-    parser.add_argument("--random-state", default=42, type=int)
-    parser.add_argument(
-        "--max-rows",
-        default=0,
-        type=int,
-        help="Use only the first N usable rows per target after chronological sorting. 0 means all.",
-    )
-    parser.add_argument(
-        "--min-rows-per-target",
-        default=500,
-        type=int,
-        help="Skip a label if it has fewer usable rows than this.",
-    )
-    parser.add_argument(
-        "--include-leakage",
-        action="store_true",
-        help="Keep known future-looking daily features in model inputs.",
-    )
-    parser.add_argument("--xgb-n-estimators", default=200, type=int)
-    parser.add_argument("--xgb-max-depth", default=4, type=int)
-    parser.add_argument("--xgb-learning-rate", default=0.05, type=float)
-    parser.add_argument(
-        "--gpu",
-        default=False,
-        type=parse_bool,
-        help="Use GPU for XGBoost when available. Accepts true/false. Default: false.",
-    )
-    parser.add_argument(
-        "--top-n",
-        default=30,
-        type=int,
-        help="Number of top features/rows shown in plots and reports.",
-    )
-
-    # Legacy options accepted so older commands do not fail after the workflow
-    # switched from single-target model comparison to multi-label XGBoost.
-    parser.add_argument("--models", default="xgb", help=argparse.SUPPRESS)
-    parser.add_argument("--skip-importance", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--importance-sample-size", default=5000, type=int, help=argparse.SUPPRESS)
-    parser.add_argument("--permutation-repeats", default=5, type=int, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     try:
-        run_multi_label(args)
+        config_file = ReportConfigFile.load(args.config)
+        pipeline_by_module = {
+            "statistics": StatisticsPipeline(),
+            "xgboost": XGBoostPipeline(),
+        }
+
+        output_dirs = set()
+        for module_name in config_file.module_names():
+            config = config_file.module_config(module_name)
+            config.data_dir = normalize_path(config.data_dir)
+            config.data_dir = resolve_data_dir(
+                config.data_dir,
+                config.raw_file,
+                config.features_file,
+                config.labels_file,
+            )
+            config.output_dir = normalize_path(config.output_dir)
+            config.output_dir.mkdir(parents=True, exist_ok=True)
+            output_dirs.add(config.output_dir)
+
+            print(f"[INFO] Loading data for module {module_name} from {config.data_dir}")
+            bundle = load_and_merge(config.data_dir, config.raw_file, config.features_file, config.labels_file)
+            context = PipelineContext(config=config, bundle=bundle, output_dir=config.output_dir)
+            pipeline = pipeline_by_module[module_name]
+            print(f"[INFO] Running module: {pipeline.name}")
+            pipeline.run(context)
+
+        for output_dir in sorted(output_dirs):
+            print(f"[DONE] Report written to {output_dir}")
+            if (output_dir / "xgboost_report.html").exists():
+                print(f"[DONE] Open XGBoost summary: {output_dir / 'xgboost_report.html'}")
+            if (output_dir / "statistics_report.html").exists():
+                print(f"[DONE] Open statistics summary: {output_dir / 'statistics_report.html'}")
     except KeyboardInterrupt:
         print("\n[ABORTED] Interrupted by user.", file=sys.stderr)
         raise SystemExit(130)

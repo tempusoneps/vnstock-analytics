@@ -31,8 +31,9 @@ def save_importance_heatmap(
     importance_df: pd.DataFrame,
     output_dir: Path,
     top_n_features: int,
+    prefix: str = "",
 ) -> Path:
-    path = output_dir / "feature_importance_heatmap.png"
+    path = output_dir / f"{prefix + '_' if prefix else ''}feature_importance_heatmap.png"
     if importance_df.empty:
         _save_empty_plot(path, "Feature Importance Heatmap", "No feature importance rows.")
         return path
@@ -68,11 +69,12 @@ def save_importance_heatmap(
     return path
 
 
-def save_metric_bars(metrics_df: pd.DataFrame, output_dir: Path) -> list[Path]:
+def save_metric_bars(metrics_df: pd.DataFrame, output_dir: Path, prefix: str = "") -> list[Path]:
     paths: list[Path] = []
+    file_prefix = f"{prefix}_" if prefix else ""
 
     classification = metrics_df[metrics_df["task_type"] == "classification"].copy()
-    classification_path = output_dir / "classification_macro_f1.png"
+    classification_path = output_dir / f"{file_prefix}classification_macro_f1.png"
     if classification.empty:
         _save_empty_plot(classification_path, "Classification Predictability", "No classification targets.")
     else:
@@ -89,7 +91,7 @@ def save_metric_bars(metrics_df: pd.DataFrame, output_dir: Path) -> list[Path]:
     paths.append(classification_path)
 
     regression = metrics_df[metrics_df["task_type"] == "regression"].copy()
-    regression_path = output_dir / "regression_r2.png"
+    regression_path = output_dir / f"{file_prefix}regression_r2.png"
     if regression.empty:
         _save_empty_plot(regression_path, "Regression Predictability", "No regression targets.")
     else:
@@ -111,8 +113,9 @@ def save_top_features_bar(
     importance_df: pd.DataFrame,
     output_dir: Path,
     top_n_features: int,
+    prefix: str = "",
 ) -> Path:
-    path = output_dir / "top_features_overall.png"
+    path = output_dir / f"{prefix + '_' if prefix else ''}top_features_overall.png"
     if importance_df.empty:
         _save_empty_plot(path, "Top Features Overall", "No feature importance rows.")
         return path
@@ -140,6 +143,7 @@ def write_html_report(
     importance_df: pd.DataFrame,
     image_paths: list[Path],
     top_n: int,
+    prefix: str = "",
 ) -> None:
     top_metrics = metrics_df.sort_values("primary_metric", ascending=False).copy()
     top_importance = (
@@ -201,7 +205,8 @@ def write_html_report(
 </body>
 </html>
 """
-    (output_dir / "report.html").write_text(document)
+    report_name = f"{prefix + '_' if prefix else ''}report.html"
+    (output_dir / report_name).write_text(document)
 
 
 def write_multi_label_visualizations(
@@ -209,10 +214,11 @@ def write_multi_label_visualizations(
     metrics_df: pd.DataFrame,
     importance_df: pd.DataFrame,
     top_n: int,
+    prefix: str = "",
 ) -> None:
     image_paths = [
-        save_importance_heatmap(importance_df, output_dir, top_n),
-        *save_metric_bars(metrics_df, output_dir),
-        save_top_features_bar(importance_df, output_dir, top_n),
+        save_importance_heatmap(importance_df, output_dir, top_n, prefix),
+        *save_metric_bars(metrics_df, output_dir, prefix),
+        save_top_features_bar(importance_df, output_dir, top_n, prefix),
     ]
-    write_html_report(output_dir, metrics_df, importance_df, image_paths, top_n)
+    write_html_report(output_dir, metrics_df, importance_df, image_paths, top_n, prefix)

@@ -38,6 +38,81 @@ def markdown_table(df: pd.DataFrame, columns: list[str], max_rows: int) -> str:
     return "\n".join(lines)
 
 
+def describe_feature_columns(features: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    total_rows = len(features)
+
+    for column in features.columns:
+        series = features[column]
+        non_null_count = int(series.notna().sum())
+        missing_count = int(series.isna().sum())
+        missing_rate = 0.0 if total_rows == 0 else float(missing_count / total_rows)
+        unique_count = int(series.nunique(dropna=True))
+
+        row: dict[str, Any] = {
+            "column": column,
+            "dtype": str(series.dtype),
+            "rows": int(total_rows),
+            "non_null_count": non_null_count,
+            "missing_count": missing_count,
+            "missing_rate": missing_rate,
+            "unique_count": unique_count,
+            "numeric_mean": pd.NA,
+            "numeric_std": pd.NA,
+            "numeric_min": pd.NA,
+            "numeric_p25": pd.NA,
+            "numeric_median": pd.NA,
+            "numeric_p75": pd.NA,
+            "numeric_max": pd.NA,
+            "top_value": "",
+            "top_value_count": pd.NA,
+            "top_value_rate": pd.NA,
+        }
+
+        if pd.api.types.is_bool_dtype(series):
+            top_values = series.dropna().astype(str).value_counts()
+            if not top_values.empty:
+                top_count = int(top_values.iloc[0])
+                row.update(
+                    {
+                        "top_value": top_values.index[0],
+                        "top_value_count": top_count,
+                        "top_value_rate": 0.0 if total_rows == 0 else float(top_count / total_rows),
+                    }
+                )
+        elif pd.api.types.is_numeric_dtype(series):
+            numeric = pd.to_numeric(series, errors="coerce").replace([float("inf"), float("-inf")], pd.NA)
+            row.update(
+                {
+                    "numeric_mean": numeric.mean(),
+                    "numeric_std": numeric.std(),
+                    "numeric_min": numeric.min(),
+                    "numeric_p25": numeric.quantile(0.25),
+                    "numeric_median": numeric.median(),
+                    "numeric_p75": numeric.quantile(0.75),
+                    "numeric_max": numeric.max(),
+                }
+            )
+        else:
+            top_values = series.dropna().astype(str).value_counts()
+            if not top_values.empty:
+                top_count = int(top_values.iloc[0])
+                row.update(
+                    {
+                        "top_value": top_values.index[0],
+                        "top_value_count": top_count,
+                        "top_value_rate": 0.0 if total_rows == 0 else float(top_count / total_rows),
+                    }
+                )
+
+        rows.append(row)
+
+    stats = pd.DataFrame(rows)
+    if stats.empty:
+        return stats
+    return stats.sort_values(["missing_rate", "unique_count", "column"], ascending=[False, False, True])
+
+
 def write_dataset_summary(
     output_dir: Path,
     bundle: DatasetBundle,

@@ -10,6 +10,7 @@ services:
       - "8888:8888" 
     volumes:
       - ./notebooks:/notebooks
+      - ./datasets:/datasets
       - ./scripts/entrypoint.sh:/entrypoint.sh
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
     networks:
