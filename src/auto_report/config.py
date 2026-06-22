@@ -9,7 +9,7 @@ from typing import Any
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.json")
-MODULE_NAMES = {"all", "statistics", "xgboost"}
+MODULE_NAMES = {"all", "statistics", "xgboost", "eda"}
 COMMON_CONFIG_KEYS = {
     "data_dir",
     "output_dir",
@@ -40,6 +40,9 @@ class AutoReportConfig:
     xgb_learning_rate: float
     gpu: bool
     top_n: int
+    eda_max_corr_features: int
+    eda_outlier_iqr_factor: float
+    eda_corr_threshold: float
 
     @classmethod
     def from_json(cls, path: Path, module: str | None = None) -> "AutoReportConfig":
@@ -84,6 +87,9 @@ class AutoReportConfig:
             xgb_learning_rate=float(data.get("xgb_learning_rate", 0.05)),
             gpu=bool(data.get("gpu", False)),
             top_n=int(data.get("top_n", 30)),
+            eda_max_corr_features=int(data.get("eda_max_corr_features", 50)),
+            eda_outlier_iqr_factor=float(data.get("eda_outlier_iqr_factor", 1.5)),
+            eda_corr_threshold=float(data.get("eda_corr_threshold", 0.8)),
         )
 
     @classmethod
@@ -108,6 +114,9 @@ class AutoReportConfig:
             xgb_learning_rate=args.xgb_learning_rate,
             gpu=args.gpu,
             top_n=args.top_n,
+            eda_max_corr_features=getattr(args, "eda_max_corr_features", 50),
+            eda_outlier_iqr_factor=getattr(args, "eda_outlier_iqr_factor", 1.5),
+            eda_corr_threshold=getattr(args, "eda_corr_threshold", 0.8),
         )
 
 
@@ -123,12 +132,12 @@ class ReportConfigFile:
         raw = json.loads(path.read_text())
         selected_module = str(raw.get("module", "all"))
         if selected_module not in MODULE_NAMES:
-            raise ValueError("Config field 'module' must be one of: all, statistics, xgboost")
+            raise ValueError("Config field 'module' must be one of: all, eda, statistics, xgboost")
         return cls(selected_module=selected_module, raw=raw)
 
     def module_names(self) -> list[str]:
         if self.selected_module == "all":
-            return ["statistics", "xgboost"]
+            return ["eda", "statistics", "xgboost"]
         return [self.selected_module]
 
     def module_config(self, module: str) -> AutoReportConfig:

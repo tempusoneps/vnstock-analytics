@@ -8,6 +8,7 @@ Primary workflow:
 - Source datasets live in `datasets/`.
 - Notebook helpers live in `notebooks/VN30F1M/`.
 - The CLI report pipeline lives in `src/auto_report/` and is launched through `src/auto_report.py`.
+- Available modules: `eda`, `statistics`, `xgboost` (run all with `"module": "all"`).
 
 ## Data Files
 
@@ -45,16 +46,28 @@ src/.venv/bin/python src/auto_report.py --config /tmp/auto_report_smoke_config.j
 
 Expected report outputs include:
 
+EDA module:
+- `eda_report.html`
+- `eda_report.md`
+- `eda_feature_analysis.csv`
+- `eda_correlation_matrix.csv`
+- `eda_top_correlations.csv`
+- `eda_label_distribution.csv`
+- `eda_correlation_heatmap.png`
+
+Statistics module:
+- `statistics_report.html`
+- `statistics_report.md`
+- `statistics_feature_column_statistics.csv`
+- `statistics_label_column_statistics.csv`
+
+XGBoost module:
 - `xgboost_report.html`
 - `xgboost_report.md`
 - `xgboost_dataset_summary.json`
 - `xgboost_label_metrics.csv`
 - `xgboost_feature_importance_by_label.csv`
 - `xgboost_feature_importance_matrix.csv`
-- `statistics_report.html`
-- `statistics_report.md`
-- `statistics_feature_column_statistics.csv`
-- `statistics_label_column_statistics.csv`
 
 ## Python Verification
 

@@ -6,6 +6,12 @@
   "features_file": "VN30F1M_5m_features.csv",
   "labels_file": "VN30F1M_5m_labels.csv",
   "modules": {
+    "eda": {
+      "top_n": 30,
+      "eda_max_corr_features": 50,
+      "eda_outlier_iqr_factor": 1.5,
+      "eda_corr_threshold": 0.8
+    },
     "statistics": {
       "top_n": 30
     },
