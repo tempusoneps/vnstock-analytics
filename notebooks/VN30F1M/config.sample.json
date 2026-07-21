@@ -1,0 +1,11 @@
+{
+  "RULE_URL": "https://raw.githubusercontent.com/tempusoneps/trading-rules/refs/heads/main/VN30F1M/close_position_rules.json",
+  "OHCLV_DATASET": "/datasets/VN30F1M_5m.csv",
+  "FEATURE_DATASET": "/datasets/VN30F1M_5m_feature.csv",
+  "LABEL_DATASET": "/datasets/VN30F1M_5m_label.csv",
+  "ANALYTICS_DATASET": "/datasets/VN30F1M_5m_ready.csv",
+  "KEY_COLUMNS": ["Date", "Open", "High", "Low", "Close", "Volume"],
+  "OHLCV_COLUMNS": ["Open", "High", "Low", "Close", "Volume"],
+  "BUY_MEET_SL": "SL(Buy)",
+  "SELL_MEET_SL": "SL(Sell)"
+}

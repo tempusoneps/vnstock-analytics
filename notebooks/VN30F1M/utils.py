@@ -9,39 +9,110 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-RULE_URL = 'https://raw.githubusercontent.com/tempusoneps/trading-rules/refs/heads/main/VN30F1M/close_position_rules.json'
-OHCLV_DATASET = 'VN30F1M_5m.csv'
-FEATURE_DATASET = 'VN30F1M_5m_features.csv'
-LABEL_DATASET = 'VN30F1M_5m_labels.csv'
-ANALYTICS_DATASET = 'VN30F1M_5m_ready.csv'
+def load_config(config_path=None):
+    if config_path is None:
+        config_path = Path(__file__).parent / 'config.json'
+    
+    config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load config from {config_path}: {e}")
+            
+    keys = [
+        'RULE_URL',
+        'OHCLV_DATASET',
+        'FEATURE_DATASET',
+        'LABEL_DATASET',
+        'ANALYTICS_DATASET',
+        'KEY_COLUMNS',
+        'OHLCV_COLUMNS',
+        'BUY_MEET_SL',
+        'SELL_MEET_SL'
+    ]
+    
+    loaded_config = {}
+    for key in keys:
+        env_val = os.environ.get(key)
+        if env_val is not None:
+            try:
+                if env_val.strip().startswith(('[', '{')) or env_val.strip() in ('true', 'false', 'null') or env_val.strip().isdigit():
+                    loaded_config[key] = json.loads(env_val)
+                else:
+                    loaded_config[key] = env_val
+            except json.JSONDecodeError:
+                if 'COLUMNS' in key:
+                    loaded_config[key] = [x.strip() for x in env_val.split(',')]
+                else:
+                    loaded_config[key] = env_val
+        else:
+            default_values = {
+                'RULE_URL': 'https://raw.githubusercontent.com/tempusoneps/trading-rules/refs/heads/main/VN30F1M/close_position_rules.json',
+                'OHCLV_DATASET': 'VN30F1M_5m.csv',
+                'FEATURE_DATASET': 'VN30F1M_5m_features.csv',
+                'LABEL_DATASET': 'VN30F1M_5m_labels.csv',
+                'ANALYTICS_DATASET': 'VN30F1M_5m_ready.csv',
+                'KEY_COLUMNS': ['Date', 'Open', 'High', 'Low', 'Close', 'Volume'],
+                'OHLCV_COLUMNS': ['Open', 'High', 'Low', 'Close', 'Volume'],
+                'BUY_MEET_SL': 'SL(Buy)',
+                'SELL_MEET_SL': 'SL(Sell)'
+            }
+            loaded_config[key] = config.get(key, default_values[key])
+            
+    return loaded_config
+
+config = load_config()
+
+RULE_URL = config['RULE_URL']
+OHCLV_DATASET = config['OHCLV_DATASET']
+FEATURE_DATASET = config['FEATURE_DATASET']
+LABEL_DATASET = config['LABEL_DATASET']
+ANALYTICS_DATASET = config['ANALYTICS_DATASET']
 CURRENT_DIR = os.getcwd()
-KEY_COLUMNS = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-OHLCV_COLUMNS = ['Open', 'High', 'Low', 'Close', 'Volume']
+KEY_COLUMNS = config['KEY_COLUMNS']
+OHLCV_COLUMNS = config['OHLCV_COLUMNS']
 
 # constraints
-BUY_MEET_SL = 'SL(Buy)'
-SELL_MEET_SL   = 'SL(Sell)'
+BUY_MEET_SL = config['BUY_MEET_SL']
+SELL_MEET_SL = config['SELL_MEET_SL']
     
 
-def load_analytics_dataset():
+def load_analytics_dataset(engine='pandas'):
+    if engine not in ('pandas', 'polars'):
+        raise ValueError("engine must be either 'pandas' or 'polars'")
+
     data_dir = resolve_dataset_dir()
-    csv_feature_file = data_dir / FEATURE_DATASET
-    csv_label_file = data_dir / LABEL_DATASET
-    csv_final_file = data_dir / ANALYTICS_DATASET
+    csv_feature_file = Path(FEATURE_DATASET) if os.path.isabs(FEATURE_DATASET) else data_dir / FEATURE_DATASET
+    csv_label_file = Path(LABEL_DATASET) if os.path.isabs(LABEL_DATASET) else data_dir / LABEL_DATASET
+    csv_final_file = Path(ANALYTICS_DATASET) if os.path.isabs(ANALYTICS_DATASET) else data_dir / ANALYTICS_DATASET
     is_file = os.path.isfile(csv_final_file)
+    
     if is_file:
-        dataset = pd.read_csv(csv_final_file, index_col='Date', parse_dates=True)
+        if engine == 'pandas':
+            dataset = pd.read_csv(csv_final_file, index_col='Date', parse_dates=True)
+        else:
+            import polars as pl
+            dataset = pl.read_csv(csv_final_file, try_parse_dates=True)
     else:
         if os.path.isfile(csv_feature_file) and os.path.isfile(csv_label_file):
             features = read_dataset_csv(csv_feature_file)
             labels = read_dataset_csv(csv_label_file)
             dataset = merge_feature_label_dataset(features, labels)
             dataset.to_csv(csv_final_file)
+            if engine == 'polars':
+                import polars as pl
+                dataset = pl.from_pandas(dataset, include_index=True)
         else:
             dataset = None
+            
     return dataset
 
 def resolve_dataset_dir():
+    if os.path.isabs(FEATURE_DATASET) and os.path.isfile(FEATURE_DATASET):
+        return Path(FEATURE_DATASET).parent.resolve()
+
     current_dir = Path(CURRENT_DIR).resolve()
     candidates = []
     for path in [current_dir] + list(current_dir.parents):
