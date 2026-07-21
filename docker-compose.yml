@@ -11,8 +11,6 @@ services:
     volumes:
       - ./notebooks:/notebooks
       - ./datasets:/datasets
-      - ./scripts/entrypoint.sh:/entrypoint.sh
-    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     networks:
       - algo_net
 

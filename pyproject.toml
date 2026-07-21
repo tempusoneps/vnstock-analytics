@@ -5,7 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "autofcholv",
     "jupyterlab>=4.6.1",
+    "labelohlcv",
     "matplotlib>=3.11.1",
     "pandas>=2.3.3",
     "pandas-ta>=0.4.71b0",
@@ -15,3 +17,7 @@ dependencies = [
     "scipy>=1.18.0",
     "seaborn>=0.13.2",
 ]
+
+[tool.uv.sources]
+autofcholv = { git = "https://github.com/tempusoneps/autofcholv.git", branch = "develop" }
+labelohlcv = { git = "https://github.com/tempusoneps/labelohlcv.git", branch = "develop" }

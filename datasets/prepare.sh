@@ -1,10 +1,14 @@
 #!/bin/bash
 
-set -e  # exit nếu có lỗi
+# Exit on error
+set -e
 
-OHLCV_DATASET="/notebooks/VN30F1M/VN30F1M_5m.csv"
-FEATURE_DATASET="/notebooks/VN30F1M/VN30F1M_5m_features.csv"
-LABEL_DATASET="/notebooks/VN30F1M/VN30F1M_5m_labels.csv"
+# Determine the directory of this script to ensure relative path works from any working directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+OHLCV_DATASET="${SCRIPT_DIR}/VN30F1M_5m.csv"
+FEATURE_DATASET="${SCRIPT_DIR}/VN30F1M_5m_features.csv"
+LABEL_DATASET="${SCRIPT_DIR}/VN30F1M_5m_labels.csv"
 OHLCV_URL="https://raw.githubusercontent.com/tempusoneps/vn-stock-data/refs/heads/main/VN30F1M/data_ohlcv/VN30F1M_5m.csv"
 
 echo "=== START DATA PREP ==="
@@ -13,10 +17,10 @@ echo "=== START DATA PREP ==="
 if [ ! -f "$OHLCV_DATASET" ]; then
   echo "[INFO] OHLCV_DATASET chưa tồn tại. Đang download..."
 
-  # đảm bảo thư mục tồn tại
+  # Đảm bảo thư mục tồn tại
   mkdir -p "$(dirname "$OHLCV_DATASET")"
 
-  curl -o "$OHLCV_DATASET" "$OHLCV_URL"
+  curl -L -o "$OHLCV_DATASET" "$OHLCV_URL"
 
   echo "[PASS] Đã download OHLCV_DATASET"
 else
@@ -45,9 +49,4 @@ else
   echo "[SKIP] FEATURE_DATASET đã tồn tại"
 fi
 
-
 echo "=== DONE ==="
-
-echo "=== START JUPYTER LAB ==="
-
-jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --ServerApp.token=''
